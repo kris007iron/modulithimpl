@@ -1,0 +1,13 @@
+
+spring:
+  application:
+    name: modulithimpl
+  jpa:
+    hibernate:
+      ddl-auto: update
+#      for production change to validate and adopt flyway
+  modulith:
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
