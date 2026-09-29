@@ -18,6 +18,7 @@ public class Product {
     @Id
     @GeneratedValue
     private UUID id;
+    @Column(unique = true, nullable = false)
     private String sku;
     private String name;
     @Column(length = 2000)
