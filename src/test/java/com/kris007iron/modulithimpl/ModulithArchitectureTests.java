@@ -3,7 +3,7 @@ package com.kris007iron.modulithimpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModules;
 
-public class ModularityTests {
+public class ModulithArchitectureTests {
 
     @Test
     void verifyModularStructure() {
