@@ -49,7 +49,7 @@ public class CatalogServiceTest {
     void shouldRejectDuplicateSku() {
         ProductReference created = catalogService.addProduct(productDto("SKU-001"));
 
-        assertThatThrownBy(() -> catalogService.addProduct(productDto("SKU-001"))).isInstanceOf(ProductAlreadyExistsException.class);
+        assertThatThrownBy(() -> catalogService.addProduct(productDto(created.sku()))).isInstanceOf(ProductAlreadyExistsException.class);
     }
 
     @Test
