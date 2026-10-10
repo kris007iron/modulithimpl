@@ -9,11 +9,7 @@ import java.util.UUID;
 @Entity
 @Data
 @NoArgsConstructor
-@Table(
-        uniqueConstraints = @UniqueConstraint(
-                columnNames = {"productId", "locationId"}
-        )
-)
+@Table(name = "stocks", uniqueConstraints = @UniqueConstraint(columnNames = {"productId", "locationId"}))
 public class Stock {
     @Id
     @GeneratedValue

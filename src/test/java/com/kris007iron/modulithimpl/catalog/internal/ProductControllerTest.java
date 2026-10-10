@@ -54,7 +54,7 @@ public class ProductControllerTest {
 
     @Test
     void shouldReturn409WhenProductAlreadyExists() throws Exception {
-        when(catalogService.addProduct(any()))
+        when(catalogService.addProduct(any(ProductDTO.class)))
                 .thenThrow(new ProductAlreadyExistsException("SKU-001"));
 
         mockMvc.perform(post("/api/products")
