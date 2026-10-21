@@ -24,7 +24,7 @@ public class OrderItem {
 
     private long quantity;
 
-    private BigDecimal unityPrice;
+    private BigDecimal unitPrice;
 
     private Currency currency;
 }

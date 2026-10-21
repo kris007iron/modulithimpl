@@ -1,5 +1,7 @@
 package com.kris007iron.modulithimpl.catalog.internal;
 
+import com.kris007iron.modulithimpl.catalog.CatalogApi;
+import com.kris007iron.modulithimpl.catalog.ProductPricing;
 import com.kris007iron.modulithimpl.catalog.ProductReference;
 import com.kris007iron.modulithimpl.catalog.internal.exception.ProductAlreadyExistsException;
 import com.kris007iron.modulithimpl.catalog.internal.exception.ProductNotFoundException;
@@ -11,7 +13,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class CatalogService {
+public class CatalogService implements CatalogApi {
     private final ProductRepository productRepository;
 
     public ProductReference addProduct(ProductDTO productDTO){
@@ -37,5 +39,15 @@ public class CatalogService {
 
     public Optional<ProductReference> findProductBySku(String sku) {
         return productRepository.findBySku(sku).map(ProductMapper::toReference);
+    }
+
+    @Override
+    public Optional<ProductPricing> findProductPricing(UUID productId) {
+        return productRepository.findById(productId)
+                .map(product -> new ProductPricing(
+                        product.getId(),
+                        product.getPrice(),
+                        product.getCurrency()
+                ));
     }
 }

@@ -15,19 +15,21 @@ public class OrderController {
     private final OrderService orderService;
 
     @PostMapping
-    public ResponseEntity<Order> createOrder(
-            @Valid @RequestBody CreateOrderRequest request) {
-
+    public ResponseEntity<Order> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         Order order = orderService.createOrder(request);
         return ResponseEntity
                 .created(URI.create("/api/orders/" + order.getId()))
                 .body(order);
     }
 
-    @GetMapping("/{orderId}")
-    public ResponseEntity<Order> findOrder(
-            @PathVariable UUID orderId) {
+    @PostMapping("/{orderId}/place")
+    public ResponseEntity<Void> placeOrder(@PathVariable UUID orderId) {
+        orderService.placeOrder(orderId);
+        return ResponseEntity.accepted().build();
+    }
 
+    @GetMapping("/{orderId}")
+    public ResponseEntity<Order> findOrder(@PathVariable UUID orderId) {
         return orderService.findOrder(orderId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());

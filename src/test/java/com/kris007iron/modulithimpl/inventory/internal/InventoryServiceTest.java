@@ -2,18 +2,22 @@ package com.kris007iron.modulithimpl.inventory.internal;
 
 import com.kris007iron.modulithimpl.inventory.internal.exception.InsufficientStockException;
 import com.kris007iron.modulithimpl.inventory.internal.exception.StockNotFoundException;
+import com.kris007iron.modulithimpl.orders.OrderPlaced;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.transaction.TestTransaction;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.*;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -28,9 +32,11 @@ class InventoryServiceTest {
     private final UUID testProductId = UUID.randomUUID();
     private final UUID testLocationId = UUID.randomUUID();
     private final long quantity = 1L;
+    @Autowired
+    private InventoryReservationRepository inventoryReservationRepository;
 
     @BeforeEach
-    void setUp() { stockRepository.deleteAll(); }
+    void setUp() { stockRepository.deleteAll(); inventoryReservationRepository.deleteAll(); }
 
     @Test
     void shouldAddStock() {
@@ -130,5 +136,87 @@ class InventoryServiceTest {
                 .get()
                 .extracting(Stock::getQuantity)
                 .isEqualTo(20L);
+    }
+
+    @Test
+    void shouldReserveStockWhenAvailable() {
+        UUID orderId = UUID.randomUUID();
+        Stock stock = createStock(testProductId, testLocationId, 10L, 0L);
+        OrderPlaced event = createOrderPlacedEvent(orderId, testProductId, 3L);
+
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        inventoryService.reserveOrder(event);
+        Stock updated = stockRepository.findByProductIdAndLocationId(testProductId, testLocationId).orElseThrow();
+
+        assertThat(10L).isEqualTo(updated.getQuantity());
+        assertThat(3L).isEqualTo(updated.getReservedQuantity());
+
+        InventoryReservation reservation = inventoryReservationRepository.findById(orderId).orElseThrow();
+
+        assertThat(ReservationStatus.RESERVED).isEqualTo(reservation.getReservationStatus());
+        assertThat(reservation.getLocationId()).isEqualTo(testLocationId);
+    }
+
+    @Test
+    void shouldThrowWhenStockIsInsufficient() {
+        UUID orderId = UUID.randomUUID();
+        createStock(testProductId, testLocationId, 5L, 2L);
+
+        OrderPlaced event =
+                createOrderPlacedEvent(orderId, testProductId, 4L);
+
+        assertThrows(
+                InsufficientStockException.class,
+                () -> inventoryService.reserveOrder(event)
+        );
+
+        Stock unchanged = stockRepository
+                .findByProductIdAndLocationId(testProductId, testLocationId)
+                .orElseThrow();
+
+        assertEquals(5L, unchanged.getQuantity());
+        assertEquals(2L, unchanged.getReservedQuantity());
+
+        assertFalse(inventoryReservationRepository.existsById(orderId));
+    }
+
+    @Test
+    void shouldNotReserveStockTwiceForSameOrder() {
+        UUID orderId = UUID.randomUUID();
+
+        createStock(testProductId, testLocationId, 10L, 0L);
+        OrderPlaced event = createOrderPlacedEvent(orderId, testProductId, 3L);
+
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        inventoryService.reserveOrder(event);
+        inventoryService.reserveOrder(event);
+
+        Stock updated = stockRepository
+                .findByProductIdAndLocationId(testProductId, testLocationId)
+                .orElseThrow();
+
+        assertEquals(3L, updated.getReservedQuantity());
+        assertEquals(
+                1L,
+                inventoryReservationRepository.count()
+        );
+    }
+
+    private Stock createStock(UUID productId, UUID locationId, long quantity, long reservedQuantity) {
+        Stock stock = new Stock();
+        stock.setProductId(productId);
+        stock.setLocationId(locationId);
+        stock.setQuantity(quantity);
+        stock.setReservedQuantity(reservedQuantity);
+        return stockRepository.saveAndFlush(stock);
+    }
+
+    private OrderPlaced createOrderPlacedEvent(UUID orderId, UUID productId, long quantity)
+    {
+        return new OrderPlaced(orderId, List.of(new OrderPlaced.OrderLine(productId, quantity)));
     }
 }
