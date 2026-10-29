@@ -14,6 +14,7 @@ import org.springframework.test.context.transaction.TestTransaction;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -206,6 +207,145 @@ class InventoryServiceTest {
         );
     }
 
+    @Test
+    void shouldPreventOversellingWhenOrdersCompeteConcurrently() throws Exception {
+        UUID firstOrderId = UUID.randomUUID();
+        UUID secondOrderId = UUID.randomUUID();
+
+        createStock(testProductId, testLocationId, 10L, 0L);
+
+        OrderPlaced firstEvent =
+                createOrderPlacedEvent(firstOrderId, testProductId, 7L);
+        OrderPlaced secondEvent =
+                createOrderPlacedEvent(secondOrderId, testProductId, 7L);
+
+        // Commit setup data so worker transactions can see it.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Boolean> firstResult = executor.submit(() -> {
+                ready.countDown();
+
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to start");
+                }
+
+                try {
+                    inventoryService.reserveOrder(firstEvent);
+                    return true;
+                } catch (InsufficientStockException exception) {
+                    return false;
+                }
+            });
+
+            Future<Boolean> secondResult = executor.submit(() -> {
+                ready.countDown();
+
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to start");
+                }
+
+                try {
+                    inventoryService.reserveOrder(secondEvent);
+                    return true;
+                } catch (InsufficientStockException exception) {
+                    return false;
+                }
+            });
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // Release both workers to compete for the same stock.
+            start.countDown();
+
+            boolean firstSucceeded = firstResult.get(10, TimeUnit.SECONDS);
+            boolean secondSucceeded = secondResult.get(10, TimeUnit.SECONDS);
+
+            assertThat(List.of(firstSucceeded, secondSucceeded))
+                    .containsExactlyInAnyOrder(true, false);
+        }
+
+        Stock updated = stockRepository
+                .findByProductIdAndLocationId(testProductId, testLocationId)
+                .orElseThrow();
+
+        assertThat(updated.getQuantity()).isEqualTo(10L);
+        assertThat(updated.getReservedQuantity()).isEqualTo(7L);
+
+        assertThat(inventoryReservationRepository.count()).isEqualTo(1L);
+        assertThat(
+                inventoryReservationRepository.existsById(firstOrderId)
+                        || inventoryReservationRepository.existsById(secondOrderId)
+        ).isTrue();
+    }
+
+    @Test
+    void shouldReserveStockOnlyOnceWhenSameOrderIsProcessedConcurrently() throws Exception {
+        UUID orderId = UUID.randomUUID();
+
+        createStock(testProductId, testLocationId, 10L, 0L);
+        OrderPlaced event = createOrderPlacedEvent(orderId, testProductId, 3L);
+
+        // Commit setup data so worker transactions can see it.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> firstResult = executor.submit(() -> {
+                ready.countDown();
+
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to start");
+                }
+
+                inventoryService.reserveOrder(event);
+                return null;
+            });
+
+            Future<?> secondResult = executor.submit(() -> {
+                ready.countDown();
+
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to start");
+                }
+
+                inventoryService.reserveOrder(event);
+                return null;
+            });
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+
+            start.countDown();
+
+            firstResult.get(10, TimeUnit.SECONDS);
+            secondResult.get(10, TimeUnit.SECONDS);
+        }
+
+        Stock updated = stockRepository
+                .findByProductIdAndLocationId(testProductId, testLocationId)
+                .orElseThrow();
+
+        assertThat(updated.getQuantity()).isEqualTo(10L);
+        assertThat(updated.getReservedQuantity()).isEqualTo(3L);
+
+        assertThat(inventoryReservationRepository.count()).isEqualTo(1L);
+        assertThat(inventoryReservationRepository.existsById(orderId)).isTrue();
+        InventoryReservation reservation = inventoryReservationRepository
+                .findById(orderId)
+                .orElseThrow();
+
+        assertThat(reservation.getLocationId()).isEqualTo(testLocationId);
+        assertThat(reservation.getReservationStatus())
+                .isEqualTo(ReservationStatus.RESERVED);
+    }
+
     private Stock createStock(UUID productId, UUID locationId, long quantity, long reservedQuantity) {
         Stock stock = new Stock();
         stock.setProductId(productId);
@@ -213,6 +353,42 @@ class InventoryServiceTest {
         stock.setQuantity(quantity);
         stock.setReservedQuantity(reservedQuantity);
         return stockRepository.saveAndFlush(stock);
+    }
+
+    @Test
+    void shouldNotReserveAnyStockWhenOneProductIsInsufficient() {
+        UUID orderId = UUID.randomUUID();
+        UUID secondProductId = UUID.randomUUID();
+
+        createStock(testProductId, testLocationId, 10L, 0L);
+        createStock(secondProductId, testLocationId, 2L, 0L);
+
+        OrderPlaced event = new OrderPlaced(
+                orderId,
+                List.of(
+                        new OrderPlaced.OrderLine(testProductId, 3L),
+                        new OrderPlaced.OrderLine(secondProductId, 5L)
+                )
+        );
+
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        assertThatThrownBy(() -> inventoryService.reserveOrder(event))
+                .isInstanceOf(InsufficientStockException.class);
+
+        Stock firstStock = stockRepository
+                .findByProductIdAndLocationId(testProductId, testLocationId)
+                .orElseThrow();
+
+        Stock secondStock = stockRepository
+                .findByProductIdAndLocationId(secondProductId, testLocationId)
+                .orElseThrow();
+
+        assertThat(firstStock.getReservedQuantity()).isZero();
+        assertThat(secondStock.getReservedQuantity()).isZero();
+
+        assertThat(inventoryReservationRepository.existsById(orderId)).isFalse();
     }
 
     private OrderPlaced createOrderPlacedEvent(UUID orderId, UUID productId, long quantity)

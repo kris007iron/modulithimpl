@@ -48,7 +48,7 @@ public class OrderService {
                     item.setQuantity(itemRequest.quantity());
                     item.setUnitPrice(pricing.price());
                     item.setCurrency(pricing.currency());
-
+                    item.setOrder(order);
                     return item;
                 })
                 .toList();

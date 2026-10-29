@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
@@ -315,7 +314,7 @@ public class OrderServiceTest {
         orderItem.setQuantity(2L);
         orderItem.setUnitPrice(new BigDecimal("19.99"));
         orderItem.setCurrency(Currency.getInstance("EUR"));
-
+        orderItem.setOrder(order);
         order.setItems(List.of(orderItem));
 
         return orderRepository.saveAndFlush(order);

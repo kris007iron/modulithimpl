@@ -71,7 +71,12 @@ public class InventoryService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void reserveOrder(OrderPlaced event) {
-        if (inventoryReservationRepository.existsById(event.orderId())) {
+        int inserted = inventoryReservationRepository.tryCreateReservation(
+                event.orderId(),
+                ReservationStatus.RESERVED.name()
+        );
+
+        if (inserted == 0) {
             return;
         }
         Map<UUID, Long> requiredQuantities = event.items().stream()
@@ -109,11 +114,10 @@ public class InventoryService {
             stock.setReservedQuantity(stock.getReservedQuantity() + quantity);
         });
 
-        InventoryReservation reservation = new InventoryReservation();
-        reservation.setOrderId(event.orderId());
-        reservation.setLocationId(locationId);
-        reservation.setReservationStatus(ReservationStatus.RESERVED);
+        InventoryReservation reservation =
+                inventoryReservationRepository.findById(event.orderId())
+                        .orElseThrow();
 
-        inventoryReservationRepository.save(reservation);
+        reservation.setLocationId(locationId);
     }
 }

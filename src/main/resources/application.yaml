@@ -7,7 +7,7 @@ spring:
     password: ${DB_PASSWORD:secret}
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
 #      for production change to validate and adopt flyway
   modulith:
     events:

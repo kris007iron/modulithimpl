@@ -17,7 +17,7 @@ Utilizing modulith to showcase clear boundaries for modules and what they are re
 
 ### Inventory
 
-**Status: V0.9 Ready**
+**Status: V1 Ready**
 
 Owns stock quantities, locations, and inventory reservations.
 
@@ -28,10 +28,13 @@ Owns stock quantities, locations, and inventory reservations.
 - Pessimistic locking during stock reservation.
 - Insufficient-stock handling.
 - Atomic stock reservation using database transactions.
+- Protection against overselling when competing orders reserve stock concurrently.
+- Idempotent reservation processing, including concurrent duplicate processing of the same order.
+- Atomic reservation across multiple products: if any required product has insufficient stock, no stock is reserved.
 
 #### Known limitations
-- **Idempotency:** Reservation processing checks for an existing reservation and uses the order ID as its primary key. This handles ordinary duplicate deliveries, but concurrent processing of the same order is not yet fully serialized.
 - **Stock locations:** An order must be fulfillable from a single location.
+- **Reservation processing:** failure recovery needs evaluation
 
 ### Orders
 
@@ -51,14 +54,17 @@ Placing an order does not guarantee immediate confirmation. Its final state depe
 
 ### Notifications
 
-**Status: Planned**
+**Status: V0.1 Ready**
 
-Intended to notify interested parties about order states and processing outcomes.
+Logs order processing outcomes through asynchronous application event listeners.
 
-#### Implementation plan
-- Notification handling.
+#### Implemented
+- Logging successful stock reservation outcomes
+- Logging failed stock reservation outcomes
+
+#### Future improvements
 - Delivery mechanism and failure handling.
-- Tests for notification processing.
+- External notification delivery e.g. via email
 
 ## Order workflow
 
@@ -72,9 +78,17 @@ The workflow uses asynchronous application event listeners. Inventory owns stock
 
 The event contracts currently reside in the Orders module to keep the module dependency graph acyclic. Inventory consumes the placement event and publishes reservation outcomes using these public contracts, without depending on Orders' internal implementation.
 
+## Database
+- PostgreSQL is used for persistence.
+- Flyway manages application database schema migrations.
+- Hibernate uses ddl-auto: validate to validate entity mappings against the database schema.
+- Spring Modulith manages initialization of its JDBC event publication registry.
+
+The initial schema is defined in V1__initial_schema.sql.
+
 ## Testing
 
-- Unit tests for services and event listeners.
+- Service and event processing test.
 - REST controller tests.
 - PostgreSQL-backed persistence tests.
 - End-to-end integration tests for successful reservation and insufficient-stock rejection.
@@ -82,7 +96,7 @@ The event contracts currently reside in the Orders module to keep the module dep
 
 ## Future improvements
 
-- Strengthen idempotency under concurrent processing and test concurrent reservations.
-- Define recovery behavior for unexpected failures and event retries.
-- Introduce Flyway database migrations.
-- Implement the Notifications module.
+- Define and verify recovery behavior for unexpected failures and event retries.
+- Add deployment configuration and operational documentation.
+- Evaluate Hibernate Envers for entity auditing.
+- Extend input validation and database constraints where appropriate.
